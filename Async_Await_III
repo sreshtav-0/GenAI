@@ -1,0 +1,40 @@
+"""
+The event loop is the `engine` that runs asynchronous tasks. 
+It:
+1. Keeps tracks of tasks (co-routines, I/O Operations, timers)
+2. Runs them in a cooperative way (non-blocking)
+3. Switch between tasks when one is waiting (like waiting for I/O, API response)
+"""
+
+import asyncio
+import time
+
+RED = "\033[31;1m"
+GREEN = "\033[32;1m"
+YELLOW = "\033[33;1m"
+BLUE = "\033[34;1m"
+PURPLE = "\033[35;1m"
+CYAN = "\033[36;1m"
+WHITE = "\033[37;1m"
+ORANGE = "\033[38;5;208m"
+
+async def monitor_task(name, duration):
+    print(f"{BLUE}[{name}] Starting task.")
+    await asyncio.sleep(duration)
+    print(f"{GREEN}[{name}] Task completed after {duration} seconds.")
+    return f"{GREEN}{name}_Result"
+
+async def main():
+    task1 = asyncio.create_task(monitor_task("Task1", 3))
+    task2 = asyncio.create_task(monitor_task("Task2", 2))
+    task3 = asyncio.create_task(monitor_task("Task3", 1))
+
+    result1 = await task1
+    await asyncio.sleep(1)
+    result2 = await task2
+    await asyncio.sleep(1)
+    result3 = await task3
+
+    print(f"{ORANGE}Results: {result1}, {result2}, {result3}")
+
+asyncio.run(main())

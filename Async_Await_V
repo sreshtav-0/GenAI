@@ -1,0 +1,142 @@
+import asyncio
+import os
+import aiohttp
+import requests
+import datetime
+from typing import Callable
+from dotenv import load_dotenv
+
+load_dotenv()
+
+RED = "\033[31;1m"
+GREEN = "\033[32;1m"
+YELLOW = "\033[33;1m"
+BLUE = "\033[34;1m"
+PURPLE = "\033[35;1m"
+CYAN = "\033[36;1m"
+WHITE = "\033[37;1m"
+ORANGE = "\033[38;5;208m"
+
+BASE = os.environ.get("RECIPE_API_BASE") or "https://www.themealdb.com/api/json/v1/1/"
+
+from typing import Dict, Optional
+
+async def safe_api_call(url: str, header: Optional[Dict[str, str]] = None, timeout: float = 10.0, retries = 3) -> Dict[str, str]:
+    for attempt in range(retries):
+        try:
+            async with aiohttp.ClientSession(headers=header) as session:
+                async with session.get(url, timeout=timeout) as response:
+                    response.raise_for_status()  # Raise error for bad responses
+                    return await response.json()
+
+        except asyncio.TimeoutError:
+            print(f"{RED}Timeout Error on attempt {attempt + 1} for URL: {url}")
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                
+        except aiohttp.ClientError as e:
+            print(f"{RED}HTTP Error: {e.status} - {e.message}")
+            
+        except Exception as e:
+            print(f"{RED}An unexpected error occurred: {e}")
+        
+        return None
+    
+#Weather API KEY
+def get_API_KEY() -> str:
+    return os.environ.get("OPEN_WEATHER_MAP") or ""
+
+def get_city()-> str:
+    city = input("Enter city name: ").strip().lower()
+    return city
+
+def parse_datetime(timestamp: int, timezone_offset: int) -> str:
+    dt = datetime.datetime.utcfromtimestamp(timestamp + timezone_offset)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+def display_weather_data(weather_data: Dict, city: str):
+    print(f"{BLUE}\nWeather report for {city.upper()}")
+    
+    main_data = weather_data["main"]
+    print(f"{CYAN}Temperature: {main_data['temp']}°F")
+    print(f"{GREEN}Feels Like: {main_data['feels_like']}°F")
+    print(f"{BLUE}Humidity: {main_data['humidity']}%")
+    print(f"{BLUE}Pressure: {main_data['pressure']} hPa")
+    print(f"{YELLOW}Low Temp: {main_data['temp_min']}°F")
+    print(f"{YELLOW}High Temp: {main_data['temp_max']}°F")
+
+    desc = weather_data["weather"][0]
+    print(f"{CYAN}Conditions: {desc['main']} - {desc['description']}")
+    sun = weather_data["sys"]
+    timezone = weather_data["timezone"]
+    sunrise = parse_datetime(sun["sunrise"], timezone)
+    sunset = parse_datetime(sun["sunset"], timezone)
+    print(f"{WHITE}Sunrise: {sunrise}")
+    print(f"{RED}Sunset: {sunset}\n")
+    # Wind Informtion 
+    print(f"{BLUE}Wind Speed: {weather_data['wind']['speed']}mph\nWind Direction: {weather_data['wind']['deg']}°")
+    # Visibility 
+    print(f"{ORANGE}Visibility: {weather_data['visibility']//1000}km")
+
+def fetch_recipe(name):
+    url = f"{BASE}search.php?s={urllib.parse.quote(name)}"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException:
+        print(f"Error fetching recipe: {e}")
+        return {}
+    
+def display_recipe(data):
+    meals = data["meals"]
+    if meals:
+        for meal in meals:
+            print(f"{PURPLE}Recipe Name: {meal['strMeal']}")
+            print(f"{CYAN}Category: {meal['strCategory']}")
+            print(f"{YELLOW}Area: {meal['strArea']}")
+        
+            for key in meal:
+                if 'Ingredient' in key:
+                    ingredient = meal[key]
+                    measure = key.replace('Ingredient', 'Measure')
+                    ingredient_qty = meal.get(measure, '')
+                    print(f"{BLUE}{ingredient}: {ingredient_qty}")
+            
+            print(f"{GREEN}Instructions: {meal['strInstructions']}")
+            print(f"{ORANGE}Follow for more recipes: {meal['strYoutube']}")
+            print(f"{WHITE}Source: {meal['strSource']}")
+    else:
+        print(f"{RED}No recipe found.")
+
+if __name__ == "__main__":
+    api_key = get_API_KEY()
+    city = get_city()
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=imperial&lang=en"
+    
+    weather_data = asyncio.run(safe_api_call(url))
+    if weather_data:
+        display_weather_data(weather_data, city)
+    else:
+        print(f"{RED}Failed to retrieve weather data for {city}.")
+
+    dish = input("Enter a dish name to search recipe: ").strip().lower()
+    headers = {'X-Api-Key': os.environ.get('NINJA_API_KEY') or ""}
+    api_url = f"https://api.api-ninjas.com/v1/nutrition?query={dish}"
+    call = asyncio.run(safe_api_call(api_url, headers))
+    if call:
+        print(f"{GREEN}\nNutritional Information for {dish.capitalize()}:")
+        for item in call:
+            print(f"{YELLOW}Name: {item['name']}")
+            print(f"{CYAN}Calories: {item['calories']} kcal")
+            print(f"{BLUE}Carbohydrates: {item['carbohydrates_total_g']} g")
+            print(f"{GREEN}Protein: {item['protein_g']} g")
+            print(f"{ORANGE}Fat: {item['fat_total_g']} g")
+            print(f"{WHITE}Serving Size: {item['serving_size_g']} g\n")
+    print("-------------------------------------------------------")
+    api_url = f"{BASE}search.php?s={dish}"
+    call = asyncio.run(safe_api_call(api_url))
+    if call:
+        display_recipe(call)
+    else:
+        print(f"{RED}Failed to retrieve recipe for {dish}.")

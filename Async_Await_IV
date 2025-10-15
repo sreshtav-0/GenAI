@@ -1,0 +1,39 @@
+import os
+import asyncio
+import time
+import aiohttp
+
+# Terminal Colors
+RED = "\033[31;1m"
+GREEN = "\033[32;1m"
+YELLOW = "\033[33;1m"
+BLUE = "\033[34;1m"
+PURPLE = "\033[35;1m"
+CYAN = "\033[36;1m"
+WHITE = "\033[37;1m"
+ORANGE = "\033[38;5;208m"
+
+def get_API_KEY() -> str:
+    return os.environ.get("OPEN_WEATHER_MAP") or ""
+
+url = f"https://api.openweathermap.org/data/2.5/weather?q=Pasadena&appid={get_API_KEY()}&units=imperial&lang=en"
+
+async def fetch_with_limit(sem, session, url, idx):
+    print(f"{CYAN}[{idx}] Waiting for Permission...")
+    async with sem:
+        print(f"{GREEN}[{idx}] Permission Granted. Fetching...")
+        response = await session.get(url)
+        print(f"{RED}[{idx}] Permit Released.")
+        return response.json()
+    
+async def main():
+    sem = asyncio.Semaphore(5)
+    urls = [url for i in range(20)]
+    async with aiohttp.ClientSession() as session:
+        tasks = [fetch_with_limit(sem, session, url, idx) for idx, result in enumerate(urls)]
+        start = time.time()
+        results = await asyncio.gather(*tasks)
+        end = time.time()
+    print(f"{ORANGE}Fetched {len(urls)} results in {end - start:.2f} seconds.")
+
+asyncio.run(main())

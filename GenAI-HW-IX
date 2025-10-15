@@ -1,0 +1,32 @@
+import re
+
+# Regular expression for a standard email pattern
+EMAIL_PATTERN = re.compile(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+
+def is_valid_email(email: str) -> bool:
+    """
+    Checks if the given email is valid according to a standard pattern.
+    Returns True if valid, False otherwise.
+    """
+    email = email.strip()
+    return bool(EMAIL_PATTERN.match(email))
+
+
+def main():
+    print("=== Email Verification Program ===")
+    print("Enter email addresses to verify. Press Enter without typing to quit.\n")
+
+    while True:
+        email = input("Enter email: ").strip()
+        if not email:            # Empty input exits the loop
+            print("Exiting the verifier. Goodbye!")
+            break
+
+        if is_valid_email(email):
+            print("✅ Valid email address\n")
+        else:
+            print("❌ Invalid email address\n")
+
+
+if __name__ == "__main__":
+    main()

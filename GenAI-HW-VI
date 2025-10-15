@@ -1,0 +1,207 @@
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+import requests
+from typing import Optional
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
+
+API_BASE = "https://www.omdbapi.com/"
+DEFAULT_TIMEOUT = 15  # seconds
+
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_INPUT = 2
+
+
+def get_api_key(cli_key: Optional[str]) -> Optional[str]:
+    if cli_key:
+        return cli_key
+    return os.environ.get("OMDB_API_KEY")
+
+
+def query_omdb(title: str, apikey: str, year: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    params = {"t": title, "apikey": apikey}
+    if year:
+        params["y"] = str(year)
+    try:
+        resp = requests.get(API_BASE, params=params, timeout=timeout)
+        resp.raise_for_status()
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Request timed out. Please try again later.")
+    except requests.exceptions.ConnectionError:
+        raise RuntimeError("Network error. Check your internet connection.")
+    except requests.exceptions.HTTPError as e:
+        raise RuntimeError(f"HTTP error: {e}")
+    try:
+        data = resp.json()
+    except ValueError:
+        raise RuntimeError("Invalid response from server (not JSON).")
+    # OMDb returns {"Response": "False", "Error": "..."} when not found or key invalid
+    if data.get("Response", "False") == "False":
+        # Forward OMDb message if present
+        msg = data.get("Error", "Movie not found.")
+        raise LookupError(msg)
+    return data
+
+
+def print_movie_summary(data: dict, quiet: bool = False) -> None:
+    # Core fields
+    title = data.get("Title", "N/A")
+    year = data.get("Year", "N/A")
+    rated = data.get("Rated", "N/A")
+    released = data.get("Released", "N/A")
+    runtime = data.get("Runtime", "N/A")
+    genre = data.get("Genre", "N/A")
+    director = data.get("Director", "N/A")
+    writer = data.get("Writer", "N/A")
+    actors = data.get("Actors", "N/A")
+    plot = data.get("Plot", "N/A")
+    language = data.get("Language", "N/A")
+    country = data.get("Country", "N/A")
+    awards = data.get("Awards", "N/A")
+    imdb_rating = data.get("imdbRating", "N/A")
+    imdb_votes = data.get("imdbVotes", "N/A")
+    imdb_id = data.get("imdbID", "N/A")
+    type_ = data.get("Type", "N/A")
+    dvd = data.get("DVD", "N/A")
+    box_office = data.get("BoxOffice", "N/A")
+    production = data.get("Production", "N/A")
+    website = data.get("Website", "")
+
+    if quiet:
+        # Minimal one-line output
+        print(f"{title} ({year}) — {genre} — IMDb: {imdb_rating}")
+        return
+
+    separator = "=" * 70
+    print(separator)
+    print(f"{title} ({year})")
+    print(separator)
+    print(f"Type: {type_}   Rated: {rated}   Runtime: {runtime}   Released: {released}")
+    print(f"Genre: {genre}")
+    print(f"Director: {director}")
+    print(f"Writer: {writer}")
+    print(f"Actors: {actors}")
+    print()
+    print("Plot:")
+    print(plot)
+    print()
+    print(f"Language: {language}   Country: {country}")
+    print(f"Awards: {awards}")
+    print(f"IMDB: {imdb_rating} (votes: {imdb_votes})   IMDB ID: {imdb_id}")
+    print(f"Box Office: {box_office}   Production: {production}")
+    if website and website != "N/A":
+        print(f"Website: {website}")
+    # Ratings list
+    ratings = data.get("Ratings", [])
+    if ratings:
+        print("\nRatings:")
+        for r in ratings:
+            source = r.get("Source", "Unknown")
+            value = r.get("Value", "")
+            print(f" - {source}: {value}")
+    # Poster
+    poster = data.get("Poster", "")
+    if poster and poster != "N/A":
+        print(f"\nPoster: {poster}")
+    print(separator)
+
+
+def save_json(data: dict, path: str) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def download_poster(url: str, out_path: str, timeout: int = DEFAULT_TIMEOUT) -> None:
+    if not url or url in ("", "N/A"):
+        raise ValueError("No poster URL to download.")
+    resp = requests.get(url, stream=True, timeout=timeout)
+    resp.raise_for_status()
+    outp = Path(out_path)
+    outp.parent.mkdir(parents=True, exist_ok=True)
+    with outp.open("wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fetch movie info from OMDb and print a neat summary.")
+    parser.add_argument("--title", "-t", type=str, help="Movie title to search for. If omitted, prompts the user.")
+    parser.add_argument("--year", "-y", type=str, help="Optional year to narrow the search.")
+    parser.add_argument("--apikey", type=str, help="OMDb API key. If omitted, the OMDB_API_KEY env var will be used.")
+    parser.add_argument("--save-json", type=str, help="Save the JSON response to this file.")
+    parser.add_argument("--save-poster", type=str, help="Download the poster image to this path.")
+    parser.add_argument("--quiet", action="store_true", help="Print minimal one-line summary.")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="Request timeout in seconds.")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+
+    title = args.title
+    if not title:
+        try:
+            # Python input prompt
+            title = input("Enter movie title: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("No title provided.", file=sys.stderr)
+            return EXIT_INPUT
+    if not title:
+        print("No title provided. Exiting.", file=sys.stderr)
+        return EXIT_INPUT
+
+    apikey = get_api_key(args.apikey)
+    if not apikey:
+        print("OMDb API key not provided. Set OMDB_API_KEY or pass --apikey.", file=sys.stderr)
+        return EXIT_INPUT
+
+    try:
+        data = query_omdb(title=title, apikey=apikey, year=args.year, timeout=args.timeout)
+    except LookupError as e:
+        print(f"Movie not found: {e}", file=sys.stderr)
+        return EXIT_FAILURE
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return EXIT_FAILURE
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        return EXIT_FAILURE
+
+    # Print summary
+    try:
+        print_movie_summary(data, quiet=args.quiet)
+    except Exception:
+        # Should not happen, but be safe
+        print("Failed to print summary.", file=sys.stderr)
+
+    # Optional: save JSON
+    if args.save_json:
+        try:
+            save_json(data, args.save_json)
+            print(f"Saved JSON to {args.save_json}")
+        except Exception as e:
+            print(f"Failed to save JSON: {e}", file=sys.stderr)
+
+    # Optional: save poster
+    if args.save_poster:
+        poster_url = data.get("Poster", "")
+        try:
+            download_poster(poster_url, args.save_poster, timeout=args.timeout)
+            print(f"Poster downloaded to {args.save_poster}")
+        except Exception as e:
+            print(f"Failed to download poster: {e}", file=sys.stderr)
+
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    code = main()
+    sys.exit(code)

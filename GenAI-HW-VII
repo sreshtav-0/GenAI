@@ -1,0 +1,92 @@
+import sqlite3
+from datetime import date
+from typing import List, Tuple
+
+DB_PATH = 'products.db'
+
+SAMPLE_PRODUCTS: List[Tuple[int, str, int, float, str]] = [
+	(1, 'Milk', 5, 2.99, '2025-06-01'),
+	(2, 'Bread', 20, 1.99, '2025-12-15'),
+	(3, 'Eggs', 8, 3.49, '2026-01-10'),
+]
+
+CREATE_TABLE_SQL = '''
+CREATE TABLE IF NOT EXISTS products (
+	product_id INTEGER PRIMARY KEY,
+	product_name TEXT NOT NULL,
+	product_qty INTEGER NOT NULL,
+	price REAL NOT NULL,
+	date_of_expiry DATE
+);
+'''
+
+INSERT_PRODUCT_SQL = '''
+INSERT OR IGNORE INTO products (product_id, product_name, product_qty, price, date_of_expiry)
+VALUES (?, ?, ?, ?, ?);
+'''
+
+FETCH_ALL_SQL = 'SELECT product_id, product_name, product_qty, price, date_of_expiry FROM products;'
+FETCH_QTY_LESS_THAN_SQL = 'SELECT product_id, product_name, product_qty, price, date_of_expiry FROM products WHERE product_qty < ?;'
+FETCH_EXPIRY_BEFORE_SQL = 'SELECT product_id, product_name, product_qty, price, date_of_expiry FROM products WHERE date_of_expiry < ?;'
+
+
+def setup_db(conn: sqlite3.Connection) -> None:
+	cur = conn.cursor()
+	cur.execute(CREATE_TABLE_SQL)
+	conn.commit()
+
+
+def insert_sample_products(conn: sqlite3.Connection) -> None:
+	cur = conn.cursor()
+	cur.executemany(INSERT_PRODUCT_SQL, SAMPLE_PRODUCTS)
+	conn.commit()
+
+
+def fetch_all(conn: sqlite3.Connection) -> List[Tuple]:
+	cur = conn.cursor()
+	cur.execute(FETCH_ALL_SQL)
+	return cur.fetchall()
+
+
+def fetch_qty_less_than(conn: sqlite3.Connection, qty: int) -> List[Tuple]:
+	cur = conn.cursor()
+	cur.execute(FETCH_QTY_LESS_THAN_SQL, (qty,))
+	return cur.fetchall()
+
+
+def fetch_expiry_before(conn: sqlite3.Connection, before_date: str) -> List[Tuple]:
+	cur = conn.cursor()
+	cur.execute(FETCH_EXPIRY_BEFORE_SQL, (before_date,))
+	return cur.fetchall()
+
+
+def print_rows(rows: List[Tuple]) -> None:
+	if not rows:
+		print('  (no rows)')
+		return
+	for r in rows:
+		print(f'  id={r[0]}, name={r[1]}, qty={r[2]}, price={r[3]}, expiry={r[4]}')
+
+
+def main() -> None:
+	# Connect (creates DB file in current directory)
+	with sqlite3.connect(DB_PATH) as conn:
+		setup_db(conn)
+		insert_sample_products(conn)
+
+		print('All products:')
+		all_products = fetch_all(conn)
+		print_rows(all_products)
+
+		print('\nProducts with quantity less than 10:')
+		low_qty = fetch_qty_less_than(conn, 10)
+		print_rows(low_qty)
+
+		print("\nProducts expiring before 2025-12-31:")
+		expiring = fetch_expiry_before(conn, '2025-12-31')
+		print_rows(expiring)
+
+
+if __name__ == '__main__':
+	main()
+

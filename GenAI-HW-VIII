@@ -1,0 +1,66 @@
+import asyncio
+import requests
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+API_KEY = os.getenv("OPEN_WEATHER_MAP")
+
+BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+
+
+def fetch_weather_sync(city: str) -> dict:
+    """Blocking function that fetches weather data."""
+    if not API_KEY or API_KEY == "YOUR_OPENWEATHERMAP_API_KEY_HERE":
+        raise ValueError("Please set your OpenWeatherMap API key in the script.")
+
+    params = {
+        "q": city,
+        "appid": API_KEY,
+        "units": "metric"   # Celsius
+    }
+
+    response = requests.get(BASE_URL, params=params, timeout=15)
+
+    if response.status_code == 404:
+        raise LookupError("City not found.")
+    response.raise_for_status()
+
+    return response.json()
+
+
+async def fetch_weather(city: str) -> None:
+    """Async wrapper to fetch weather without blocking the event loop."""
+    try:
+        data = await asyncio.to_thread(fetch_weather_sync, city)
+
+        name = data.get("name", city)
+        temp = data.get("main", {}).get("temp", "N/A")
+        condition = data.get("weather", [{}])[0].get("description", "N/A")
+
+        print(f"\n🌍 City: {name}")
+        print(f"🌡 Temperature: {round(temp, 2)}C OR {round(temp * (9/5), 2) + 32}F")
+        print(f"☁ Condition: {condition}")
+
+    except LookupError as e:
+        print(f"❌ {e}")
+    except requests.exceptions.Timeout:
+        print("⏳ Request timed out. Please try again later.")
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Network or HTTP error: {e}")
+    except Exception as e:
+        print(f"⚠️ Unexpected error: {e}")
+
+
+async def main():
+    city = input("Enter a city name: ").strip()
+    if not city:
+        print("⚠️ City name cannot be empty.")
+        return
+
+    await fetch_weather(city)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

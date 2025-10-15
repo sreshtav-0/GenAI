@@ -1,0 +1,49 @@
+import requests
+import urllib.parse
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+BLUE = "\033[94m"
+MAGENTA = "\033[95m"
+CYAN = "\033[96m"
+WHITE = "\033[97m"
+ORANGE = "\033[38;5;208m"
+RESET = "\033[0m"
+
+BASE = "https://www.themealdb.com/api/json/v1/1/"
+
+def fetch_recipe(name):
+    url = f"{BASE}search.php?s={urllib.parse.quote(name)}"
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException:
+        print(f"Error fetching recipe: {e}")
+        return {}
+    
+def display_recipe(data):
+    meals = recipe_data["meals"]
+    if meals:
+        for meal in meals:
+            print(f"{MAGENTA}Recipe Name: {meal['strMeal']}")
+            print(f"{CYAN}Category: {meal['strCategory']}")
+            print(f"{YELLOW}Area: {meal['strArea']}")
+        
+            for key in meal:
+                if 'Ingredient' in key:
+                    ingredient = meal[key]
+                    measure = key.replace('Ingredient', 'Measure')
+                    ingredient_qty = meal.get(measure, '')
+                    print(f"{BLUE}{ingredient}: {ingredient_qty}")
+            
+            print(f"{GREEN}Instructions: {meal['strInstructions']}")
+            print(f"{ORANGE}Follow for more recipes: {meal['strYoutube']}")
+            print(f"{WHITE}Source: {meal['strSource']}")
+    else:
+        print(f"{RED}No recipe found.")
+if __name__ == "__main__":
+    dish_name = input("Enter a dish name (default: 'grilled chicken'): ") or "grilled chicken"
+    recipe_data = fetch_recipe(dish_name)
+    display_recipe(recipe_data)

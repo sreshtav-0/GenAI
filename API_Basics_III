@@ -1,0 +1,50 @@
+import os
+import requests
+from PIL import Image
+import io
+import datetime
+import shutil
+from dotenv import load_dotenv
+load_dotenv()
+from typing import Any, Dict, List, Callable
+
+api_key = os.environ['NINJA_API_KEY'] = os.getenv('NINJA_API_KEY')
+
+def fetch_joke(api_key: str) -> Dict[str, Any]:
+    try:
+        api_url = "https://api.api-ninjas.com/v1/jokes"
+        response = requests.get(api_url, headers={'X-Api-Key': os.environ['NINJA_API_KEY']})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching joke: {e}")
+        return {}
+    
+def qr_input():
+    return input("Enter text to generate QR code: ")
+
+def fetch_qr_data(api_key:str, qr_input_func:Callable, fmt="png"):
+    try:
+        qr_input = qr_input_func()
+        api_url = f"https://api.api-ninjas.com/v1/qrcode?format={fmt}&data={qr_input}"
+        response = requests.get(api_url, headers={"X-Api-Key":api_key, 
+        "Accept":"image/png"}, stream=True)
+        response.raise_for_status()
+        name = input("Save the QR code with name: ").strip().lower()
+        with open(f"{name}.png", "wb") as f:
+            raw_bytes = response.content
+            buffer = io.BytesIO(raw_bytes)
+            # Open with PIL
+            img = Image.open(buffer)
+            img.load()
+            img.save(f, "png")
+        return img
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching QR code: {e}")
+        return {}
+    
+if __name__ == "__main__":
+    # joke_gen = fetch_joke(os.getenv('NINJA_API_KEY'))
+    # print(joke_gen)
+
+    fetch_qr_data(os.environ['NINJA_API_KEY'], qr_input)

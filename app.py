@@ -1,4 +1,4 @@
-"""One page that sends the same prompt to ChatGPT, Gemini, and Groq."""
+"""One page that sends the same prompt to ChatGPT, Gemini, Groq, and Claude."""
 
 from __future__ import annotations
 
@@ -32,9 +32,11 @@ DEFAULTS = {
     "groq_api_key": "",
     "openai_api_key": "",
     "gemini_api_key": "",
-    "groq_model": "llama-3.3-70b-versatile",
-    "openai_model": "gpt-4o-mini",
-    "gemini_model": "gemini-2.5-flash",
+    "anthropic_api_key": "",
+    "groq_model": "openai/gpt-oss-120b",
+    "openai_model": "gpt-6.1-sol",
+    "gemini_model": "gemini-3.8-flash",
+    "anthropic_model": "claude-sonnet-5-5",
     "temperature": 0.7,
     "max_tokens": 1024,
     "technique": "Chain-of-thought",
@@ -55,6 +57,10 @@ def init_state() -> None:
     st.session_state.setdefault("last_activity", None)
     st.session_state.setdefault("deletion_notice", None)
     st.session_state.setdefault("upload_key", 0)
+    for provider in PROVIDERS:
+        model_key = f"{provider}_model"
+        if st.session_state.get(model_key) not in MODEL_OPTIONS[provider]:
+            st.session_state[model_key] = MODEL_OPTIONS[provider][0]
 
 
 def wipe_saved_text() -> None:
@@ -99,6 +105,13 @@ def sidebar() -> None:
     st.sidebar.selectbox("Gemini model", MODEL_OPTIONS["gemini"], key="gemini_model")
     st.sidebar.text_input("Groq API key", type="password", key="groq_api_key")
     st.sidebar.selectbox("Groq model", MODEL_OPTIONS["groq"], key="groq_model")
+    st.sidebar.text_input(
+        "Claude API key",
+        type="password",
+        key="anthropic_api_key",
+        help="Anthropic API key for Claude. This is not a Claude Code login.",
+    )
+    st.sidebar.selectbox("Claude model", MODEL_OPTIONS["anthropic"], key="anthropic_model")
 
     st.sidebar.header("Shared prompt settings")
     st.sidebar.selectbox("Prompt technique", list(TECHNIQUES), key="technique")
@@ -109,6 +122,10 @@ def sidebar() -> None:
         help="Added to the system prompt for every model, so the comparison stays fair.",
     )
     st.sidebar.slider("Temperature", 0.0, 2.0, step=0.1, key="temperature")
+    st.sidebar.caption(
+        "The same temperature is sent to Gemini and Groq. Claude is capped at 1.0. "
+        "ChatGPT's current models reject temperature, so that setting is omitted for them."
+    )
     st.sidebar.number_input(
         "Max tokens",
         min_value=256,
@@ -121,7 +138,7 @@ def sidebar() -> None:
         PROVIDERS,
         format_func=provider_label,
         key="judge_provider",
-        help="This model reads the three answers and writes the structured comparison. It uses a low temperature.",
+        help="This model reads the answers and writes the structured comparison. It uses a low temperature.",
     )
 
     st.sidebar.header("Privacy")
@@ -251,7 +268,7 @@ def judge_answers(prompt: str, reference: str, answers: dict[str, str]) -> dict:
 
 def render_run(run: dict) -> None:
     st.subheader("Outputs")
-    columns = st.columns(3)
+    columns = st.columns(len(PROVIDERS))
     for column, provider in zip(columns, PROVIDERS):
         result: CallResult = run["results"][provider]
         with column:
@@ -336,9 +353,9 @@ def main() -> None:
 
     st.title("Side-by-side model comparison")
     st.write(
-        "One prompt is sent to ChatGPT, Gemini, and Groq with the same instructions, "
-        "temperature, and token limit. Their answers stay on this page so you can "
-        "compare reasoning and, when you supply a reference answer, accuracy."
+        "One prompt is sent to ChatGPT, Gemini, Groq, and Claude with the same instructions "
+        "and token limit. Their answers stay on this page so you can compare reasoning and, "
+        "when you supply a reference answer, accuracy."
     )
     st.caption(
         "Chat history lives in this session's memory. It is deleted when you start "

@@ -8,12 +8,14 @@ from comparison import (
     surface_overlap,
 )
 from llm_handler import (
+    build_anthropic_user_content,
     build_chat_messages,
     build_system_prompt,
     call_provider,
     image_data_url,
     mime_from_upload,
     normalize_model_id,
+    temperature_for_provider,
     vision_block_reason,
 )
 
@@ -30,12 +32,11 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(mime_from_upload("photo.jpg", None), "image/jpeg")
 
     def test_text_only_model_is_not_silently_replaced(self):
-        reason = vision_block_reason("groq", "llama-3.3-70b-versatile", True)
+        reason = vision_block_reason("groq", "openai/gpt-oss-120b", True)
         self.assertIn("cannot read images", reason)
-        self.assertIsNone(
-            vision_block_reason("groq", "meta-llama/llama-4-scout-17b-16e-instruct", True)
-        )
-        self.assertIsNone(vision_block_reason("openai", "gpt-4o-mini", True))
+        self.assertIsNone(vision_block_reason("groq", "qwen/qwen3.8-27b", True))
+        self.assertIsNone(vision_block_reason("openai", "gpt-6.1-sol", True))
+        self.assertIsNone(vision_block_reason("anthropic", "claude-sonnet-5-5", True))
 
     def test_gemini_model_prefix_is_removed(self):
         self.assertEqual(normalize_model_id("models/gemini-2.5-flash"), "gemini-2.5-flash")
@@ -58,7 +59,7 @@ class HandlerTests(unittest.TestCase):
         result = call_provider(
             "groq",
             "not-a-real-key",
-            "llama-3.3-70b-versatile",
+            "openai/gpt-oss-120b",
             "Be brief.",
             "Describe this",
             0.7,
@@ -72,7 +73,7 @@ class HandlerTests(unittest.TestCase):
         result = call_provider(
             "openai",
             "  ",
-            "gpt-4o-mini",
+            "gpt-6.1-sol",
             "Be brief.",
             "Hello",
             0.7,
@@ -80,6 +81,14 @@ class HandlerTests(unittest.TestCase):
             None,
         )
         self.assertIn("API key", result.error)
+
+    def test_claude_gets_the_same_prompt_and_a_capped_temperature(self):
+        content = build_anthropic_user_content("Describe this", ("image/png", "abc123"))
+        self.assertEqual(content[1]["text"], "Describe this")
+        self.assertEqual(content[0]["source"]["media_type"], "image/png")
+        self.assertEqual(temperature_for_provider("anthropic", "claude-sonnet-5-5", 1.4), 1.0)
+        self.assertIsNone(temperature_for_provider("openai", "gpt-6.1-sol", 0.7))
+        self.assertEqual(temperature_for_provider("groq", "openai/gpt-oss-120b", 0.7), 0.7)
 
 
 class ComparisonTests(unittest.TestCase):

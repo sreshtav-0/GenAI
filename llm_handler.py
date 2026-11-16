@@ -1,4 +1,4 @@
-"""Calls to Groq, OpenAI, and Gemini, plus the shared prompt techniques."""
+"""Calls to ChatGPT, Gemini, Groq, and Claude, plus the shared prompt techniques."""
 
 from __future__ import annotations
 
@@ -6,56 +6,51 @@ import base64
 import time
 from dataclasses import dataclass
 
-PROVIDERS = ("openai", "gemini", "groq")
+PROVIDERS = ("openai", "gemini", "groq", "anthropic")
 
 PROVIDER_LABELS = {
     "openai": "ChatGPT",
     "gemini": "Gemini",
     "groq": "Groq",
+    "anthropic": "Claude",
 }
 
 MODEL_OPTIONS = {
-    "groq": [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
-        "qwen/qwen3-32b",
-        "moonshotai/kimi-k2-instruct",
-        "meta-llama/llama-guard-4-12b",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-    ],
     "openai": [
-        "gpt-4o-mini",
-        "gpt-4o",
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6.1-terra",
+        "gpt-6-luna",
     ],
     "gemini": [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash-lite",
-        "gemini-flash-latest",
-        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+    ],
+    "groq": [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+    ],
+    "anthropic": [
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
+        "claude-haiku-5-5",
+        "claude-fable-5-2",
     ],
 }
 
 # Models that accept an image plus text. Text-only models are not swapped in silently.
 VISION_MODELS = {
-    "groq": {
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-    },
-    "openai": {
-        "gpt-4o",
-        "gpt-4o-mini",
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
-    },
+    "openai": set(MODEL_OPTIONS["openai"]),
     "gemini": set(MODEL_OPTIONS["gemini"]),
+    "groq": {
+        "qwen/qwen3.8-27b",
+    },
+    "anthropic": set(MODEL_OPTIONS["anthropic"]),
 }
 
 ALLOWED_MIME_TYPES = {
@@ -139,6 +134,32 @@ def image_data_url(mime: str, encoded: str) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
+def temperature_for_provider(provider: str, model: str, temperature: float) -> float | None:
+    """Return the temperature to send, or None when that API rejects the parameter.
+
+    GPT-6 rejects temperature while it is reasoning. Claude accepts 0 through 1.
+    """
+    if provider == "openai" and normalize_model_id(model).startswith("gpt-6"):
+        return None
+    if provider == "anthropic":
+        return max(0.0, min(1.0, temperature))
+    return temperature
+
+
+def build_anthropic_user_content(user_text: str, image: tuple[str, str] | None):
+    if image is None:
+        return user_text
+    mime, encoded = image
+    image_data_url(mime, encoded)
+    return [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": mime, "data": encoded},
+        },
+        {"type": "text", "text": user_text},
+    ]
+
+
 def vision_block_reason(provider: str, model: str, has_image: bool) -> str | None:
     if not has_image:
         return None
@@ -204,6 +225,8 @@ def call_provider(
             result.text = _openai_chat(api_key, model, system_prompt, user_text, temperature, max_tokens, image)
         elif provider == "gemini":
             result.text = _gemini_chat(api_key, model, system_prompt, user_text, temperature, max_tokens, image)
+        elif provider == "anthropic":
+            result.text = _anthropic_chat(api_key, model, system_prompt, user_text, temperature, max_tokens, image)
         else:
             result.error = f"Unknown provider: {provider}"
     except Exception as exc:
@@ -245,13 +268,49 @@ def _openai_chat(
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=build_chat_messages(system_prompt, user_text, image),
-        temperature=temperature,
-        max_completion_tokens=max_tokens,
-    )
+    request = {
+        "model": model,
+        "messages": build_chat_messages(system_prompt, user_text, image),
+        "max_completion_tokens": max_tokens,
+    }
+    sent_temperature = temperature_for_provider("openai", model, temperature)
+    if sent_temperature is not None:
+        request["temperature"] = sent_temperature
+    response = client.chat.completions.create(**request)
     return _choice_text(response)
+
+
+def _anthropic_chat(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_text: str,
+    temperature: float,
+    max_tokens: int,
+    image: tuple[str, str] | None,
+) -> str:
+    from anthropic import Anthropic
+
+    client = Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model,
+        system=system_prompt,
+        messages=[
+            {
+                "role": "user",
+                "content": build_anthropic_user_content(user_text, image),
+            }
+        ],
+        temperature=temperature_for_provider("anthropic", model, temperature),
+        max_tokens=max_tokens,
+    )
+    pieces = []
+    for block in response.content:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            pieces.append(block.text)
+    if not pieces:
+        raise RuntimeError("Claude returned an empty response.")
+    return "\n".join(pieces)
 
 
 def _gemini_chat(

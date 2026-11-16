@@ -25,6 +25,7 @@ from llm_handler import (
     encode_image_bytes,
     mime_from_upload,
     provider_label,
+    vision_block_reason,
 )
 
 DEFAULTS = {
@@ -43,7 +44,6 @@ DEFAULTS = {
     "judge_provider": "groq",
 }
 
-INPUT_KEYS = ("prompt_text", "reference_answer", "upload")
 JUDGE_TEMPERATURE = 0.2
 JUDGE_MAX_TOKENS = 1024
 
@@ -54,13 +54,25 @@ def init_state() -> None:
     st.session_state.setdefault("runs", [])
     st.session_state.setdefault("last_activity", None)
     st.session_state.setdefault("deletion_notice", None)
+    st.session_state.setdefault("upload_key", 0)
 
 
-def clear_transcript() -> None:
+def wipe_saved_text() -> None:
+    """Clear the transcript and the form fields before those widgets are drawn.
+
+    Popping the keys is not enough: the browser sends the previous text again
+    on the next run and Streamlit restores it.
+    """
     st.session_state.runs = []
     st.session_state.last_activity = None
-    for key in INPUT_KEYS:
-        st.session_state.pop(key, None)
+    st.session_state.prompt_text = ""
+    st.session_state.reference_answer = ""
+    st.session_state.upload_key = int(st.session_state.get("upload_key", 0)) + 1
+
+
+def on_delete() -> None:
+    wipe_saved_text()
+    st.session_state.deletion_notice = "Chat history was deleted."
 
 
 def expire_transcript(now: float) -> None:
@@ -69,7 +81,7 @@ def expire_transcript(now: float) -> None:
         now,
         int(st.session_state.history_ttl_minutes),
     ):
-        clear_transcript()
+        wipe_saved_text()
         st.session_state.deletion_notice = (
             "Chat history was deleted automatically after the idle limit."
         )
@@ -124,10 +136,7 @@ def sidebar() -> None:
         "Delete the previous comparison when a new one starts",
         key="keep_only_latest",
     )
-    if st.sidebar.button("Delete history now", width="stretch"):
-        clear_transcript()
-        st.session_state.deletion_notice = "Chat history was deleted."
-        st.rerun()
+    st.sidebar.button("Delete history now", width="stretch", on_click=on_delete)
 
 
 def read_image(uploaded) -> tuple[str, str] | None:
@@ -340,18 +349,6 @@ def main() -> None:
         st.info(st.session_state.deletion_notice)
         st.session_state.deletion_notice = None
 
-    prompt = st.text_area("Prompt", height=140, key="prompt_text")
-    reference = st.text_area(
-        "Reference answer (optional)",
-        height=80,
-        key="reference_answer",
-        help="Used only by the comparison judge when it discusses accuracy.",
-    )
-    uploaded = st.file_uploader(
-        "Image (optional)",
-        type=["png", "jpg", "jpeg", "webp"],
-        key="upload",
-    )
     missing = [
         provider_label(provider)
         for provider in PROVIDERS
@@ -360,7 +357,22 @@ def main() -> None:
     if missing:
         st.info("Add API keys to include " + ", ".join(missing) + ".")
 
-    if st.button("Compare models", type="primary", width="stretch"):
+    with st.form("comparison_form", clear_on_submit=False):
+        prompt = st.text_area("Prompt", height=140, key="prompt_text")
+        reference = st.text_area(
+            "Reference answer (optional)",
+            height=80,
+            key="reference_answer",
+            help="Used only by the comparison judge when it discusses accuracy.",
+        )
+        uploaded = st.file_uploader(
+            "Image (optional)",
+            type=["png", "jpg", "jpeg", "webp"],
+            key=f"upload_{st.session_state.upload_key}",
+        )
+        submitted = st.form_submit_button("Compare models", type="primary", width="stretch")
+
+    if submitted:
         if not prompt.strip():
             st.warning("Enter a prompt first.")
         elif len(missing) == len(PROVIDERS):
@@ -371,8 +383,23 @@ def main() -> None:
             except ValueError as exc:
                 st.error(str(exc))
             else:
+                blocked = [
+                    provider_label(provider)
+                    for provider in PROVIDERS
+                    if vision_block_reason(
+                        provider,
+                        st.session_state[f"{provider}_model"],
+                        image is not None,
+                    )
+                ]
+                if blocked:
+                    st.warning(
+                        "These models cannot read the attached image: "
+                        + ", ".join(blocked)
+                        + ". Choose a vision-capable model in the sidebar, or remove the image."
+                    )
                 with st.spinner("Asking the models and writing the comparison..."):
-                    run_comparison(prompt.strip(), reference, image)
+                    run_comparison(prompt.strip(), reference or "", image)
 
     for run in reversed(st.session_state.runs):
         render_run(run)

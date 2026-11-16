@@ -290,6 +290,16 @@ def _gemini_chat(
 
 def _choice_text(response) -> str:
     content = response.choices[0].message.content
-    if not content:
+    if isinstance(content, list):
+        pieces = []
+        for part in content:
+            if isinstance(part, str):
+                pieces.append(part)
+            elif isinstance(part, dict):
+                pieces.append(str(part.get("text") or ""))
+            else:
+                pieces.append(str(getattr(part, "text", "") or ""))
+        content = "\n".join(piece for piece in pieces if piece.strip())
+    if not content or not str(content).strip():
         raise RuntimeError("The model returned an empty response.")
-    return content
+    return str(content)

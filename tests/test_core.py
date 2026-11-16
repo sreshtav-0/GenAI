@@ -111,6 +111,12 @@ class ComparisonTests(unittest.TestCase):
         )
         self.assertEqual(payload["similarities"], ["both say 4"])
 
+    def test_judge_json_with_surrounding_prose_is_parsed(self):
+        payload = parse_judge_payload(
+            'Here is the comparison:\n{"similarities": ["same answer"], "differences": ["tone"]}\nDone.'
+        )
+        self.assertEqual(payload["differences"], ["tone"])
+
     def test_judge_prompt_includes_every_answer_and_the_reference(self):
         text = build_judge_prompt("What is 2+2?", {"ChatGPT": "4", "Groq": "four"}, "4")
         self.assertIn("What is 2+2?", text)

@@ -64,8 +64,18 @@ def parse_judge_payload(text: str) -> dict | None:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
+    payload = _load_json_object(cleaned)
+    if payload is None:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end > start:
+            payload = _load_json_object(cleaned[start : end + 1])
+    return payload
+
+
+def _load_json_object(text: str) -> dict | None:
     try:
-        payload = json.loads(cleaned)
+        payload = json.loads(text)
     except json.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
